@@ -1,0 +1,42 @@
+version: "3.9"
+
+# Alternative docker-compose config for WSL1
+# Use this if host.docker.internal doesn't work
+# Replace <WSL1_IP> with your WSL1 IP address (get it with: hostname -I | awk '{print $1}')
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: monitoring-backend
+    ports:
+      - "8000:8000"
+    networks:
+      - monitor-net
+    environment:
+      # Use WSL1 IP directly - replace with your actual WSL1 IP
+      # Get it with: wsl hostname -I | awk '{print $1}'
+      - HOST_API_BASE_URL=http://172.18.48.1:9000
+      - POLL_INTERVAL_SECONDS=5
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: http://localhost:8000
+    container_name: monitoring-frontend
+    ports:
+      - "3000:80"
+    networks:
+      - monitor-net
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+networks:
+  monitor-net:
+    driver: bridge
+
