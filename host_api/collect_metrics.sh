@@ -150,13 +150,66 @@ echo "    \"used_gb\": ${METRICS[MEM_USED]:-0},"
 echo "    \"free_gb\": ${METRICS[MEM_FREE]:-0},"
 echo "    \"percent\": ${METRICS[MEM_PERCENT]:-0}"
 echo "  },"
+# Parse disk partitions from raw string
+parse_disk_partitions() {
+    local raw="${METRICS[DISK_RAW]}"
+    echo "["
+    if [ -n "$raw" ]; then
+        IFS=';' read -ra DISK_ARRAY <<< "$raw"
+        local first=1
+        for disk in "${DISK_ARRAY[@]}"; do
+            [ -z "$disk" ] && continue
+            [ "$first" -eq 1 ] && first=0 || echo ","
+            
+            # Format: path|size|used|avail|pcent
+            local path=$(echo "$disk" | cut -d'|' -f1)
+            local size=$(echo "$disk" | cut -d'|' -f2)
+            local used=$(echo "$disk" | cut -d'|' -f3)
+            local avail=$(echo "$disk" | cut -d'|' -f4)
+            local pcent=$(echo "$disk" | cut -d'|' -f5)
+            
+            echo -n "  {"
+            echo -n "\"path\": \"$(escape_json "$path")\","
+            echo -n "\"size\": \"$(escape_json "$size")\","
+            echo -n "\"used\": \"$(escape_json "$used")\","
+            echo -n "\"avail\": \"$(escape_json "$avail")\","
+            echo -n "\"percent\": ${pcent:-0}"
+            echo -n "}"
+        done
+    fi
+    echo ""
+    echo "]"
+}
+
 echo "  \"disk\": {"
 echo "    \"display\": \"$(escape_json "${METRICS[DISK_DISPLAY]:-N/A}")\","
 echo "    \"percent\": ${METRICS[DISK_PERCENT]:-0},"
-echo "    \"info\": \"$(escape_json "${METRICS[DISK_INFO]:-N/A}")\""
+echo "    \"partitions\": $(parse_disk_partitions)"
 echo "  },"
+# Parse raw network metrics
+parse_network_raw() {
+    local raw="${METRICS[NET_RAW]}"
+    # Format: lan_rx|lan_tx|wifi_rx|wifi_tx|tcp
+    if [ -n "$raw" ]; then
+        local lan_rx=$(echo "$raw" | cut -d'|' -f1)
+        local lan_tx=$(echo "$raw" | cut -d'|' -f2)
+        local wifi_rx=$(echo "$raw" | cut -d'|' -f3)
+        local wifi_tx=$(echo "$raw" | cut -d'|' -f4)
+        local tcp=$(echo "$raw" | cut -d'|' -f5)
+        
+        echo "{"
+        echo "    \"lan\": { \"rx\": ${lan_rx:-0}, \"tx\": ${lan_tx:-0} },"
+        echo "    \"wifi\": { \"rx\": ${wifi_rx:-0}, \"tx\": ${wifi_tx:-0} },"
+        echo "    \"tcp\": ${tcp:-0}"
+        echo "}"
+    else
+        echo "null"
+    fi
+}
+
 echo "  \"network\": {"
-echo "    \"data\": \"$(escape_json "${METRICS[NET_DATA]:-N/A}")\""
+echo "    \"data\": \"$(escape_json "${METRICS[NET_DATA]:-N/A}")\","
+echo "    \"stats\": $(parse_network_raw)"
 echo "  },"
 echo "  \"gpu\": {"
 echo "    \"name\": \"$(escape_json "${METRICS[GPU_NAME]:-N/A}")\","

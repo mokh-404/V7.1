@@ -17,7 +17,7 @@ services:
     environment:
       # Host API URL - Use WSL1 IP directly (tested and working)
       # This IP allows Docker containers to reach the host API running in WSL1
-      - HOST_API_BASE_URL=http://192.168.56.1:9000
+      - HOST_API_BASE_URL=http://host.docker.internal:9000
       - POLL_INTERVAL_SECONDS=5
     restart: unless-stopped
 

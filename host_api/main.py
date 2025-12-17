@@ -108,11 +108,22 @@ def current_metrics() -> Dict[str, Any]:
     try:
         # Execute the wrapper script
         # This script sources system_monitor.sh and outputs JSON
+        # Prepare command based on OS
+        import platform
+        if platform.system() == "Windows":
+            # On Windows, run via WSL
+            # Use relative path since we set cwd
+            # wsl.exe will inherit the cwd 
+            cmd = ["wsl", "bash", COLLECT_SCRIPT.name]
+        else:
+            # On Linux/WSL internal, run directly
+            cmd = ["/bin/bash", str(COLLECT_SCRIPT)]
+
         result = subprocess.run(
-            ["/bin/bash", str(COLLECT_SCRIPT)],
+            cmd,
             capture_output=True,
-            text=True,
-            timeout=60,  # 60 second timeout
+            encoding='utf-8', # Force UTF-8 for WSL output
+            timeout=180,  # 180 second timeout
             cwd=str(SCRIPT_DIR),  # Run from script directory
         )
         
@@ -153,7 +164,7 @@ def current_metrics() -> Dict[str, Any]:
             }
             
     except subprocess.TimeoutExpired:
-        error_msg = "Script execution timed out after 60 seconds"
+        error_msg = "Script execution timed out after 180 seconds"
         logger.error(error_msg)
         return {
             "timestamp": datetime.utcnow().isoformat() + "Z",

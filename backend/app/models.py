@@ -21,15 +21,33 @@ class MemoryMetrics(BaseModel):
     free_gb: float
     percent: float
 
+class PartitionInfo(BaseModel):
+    """Details for a single disk partition."""
+    path: str
+    size: str
+    used: str
+    avail: str
+    percent: float
+
 class DiskMetrics(BaseModel):
     """Disk metrics model."""
-    display: Optional[str] = None  # Formatted disk info
-    percent: Optional[float] = None
-    info: Optional[str] = None  # Raw disk info string
+    display: Optional[str] = None  # Formatted string (Legacy)
+    percent: Optional[float] = None # Primary disk percent
+    partitions: Optional[List[PartitionInfo]] = None # List of all partitions
+
+class TrafficStats(BaseModel):
+    rx: float
+    tx: float
+
+class NetworkStats(BaseModel):
+    lan: TrafficStats
+    wifi: TrafficStats
+    tcp: int
 
 class NetworkMetrics(BaseModel):
     """Network metrics model."""
-    data: Optional[str] = None  # Formatted network data string
+    data: Optional[str] = None
+    stats: Optional[NetworkStats] = None  # Formatted network data string
     # Could be parsed further if needed
 
 class GPUMetrics(BaseModel):

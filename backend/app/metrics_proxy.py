@@ -10,28 +10,30 @@ from the host API which runs the trusted bash script on the host.
 import requests
 import time
 import logging
-from datetime import datetime
-from typing import Any, Dict
+import json
+from pathlib import Path
 
-from .config import settings
+# ... (imports)
 
-logger = logging.getLogger(__name__)
+HISTORY_FILE = Path("history.jsonl")
+
+# Initialize persistent storage (reset on startup)
+if HISTORY_FILE.exists():
+    try:
+        HISTORY_FILE.unlink()
+    except OSError:
+        pass # Ignore if open
 
 # Global storage for latest metrics fetched from host API
 LATEST: Dict[str, Any] = {
-    "timestamp": None,
-    "data": None,
-    "error": "not started",
+# ...
 }
 
 
 def collect_from_host_api():
     """
     Fetch metrics from the host API and update LATEST.
-    
-    This function makes an HTTP request to the host API running on the host
-    (WSL1 or native Linux), which executes system_monitor.sh and returns
-    real host metrics.
+    Also appends the data to the persistent history file.
     """
     global LATEST
     
@@ -39,16 +41,27 @@ def collect_from_host_api():
     
     try:
         logger.debug(f"Fetching metrics from host API: {url}")
-        r = requests.get(url, timeout=10)
+        r = requests.get(url, timeout=180)
         r.raise_for_status()
         payload = r.json()
         
         # Normalize: expect host API to return {timestamp, data, error}
-        LATEST = {
+        current_data = {
             "timestamp": payload.get("timestamp", datetime.utcnow().isoformat() + "Z"),
             "data": payload.get("data"),
             "error": payload.get("error"),
         }
+        
+        LATEST = current_data
+        
+        # Append to history file if data is valid
+        if not LATEST.get("error") and LATEST.get("data"):
+            try:
+                with open(HISTORY_FILE, "a", encoding="utf-8") as f:
+                    json.dump(LATEST, f)
+                    f.write("\n")
+            except Exception as e:
+                logger.error(f"Failed to write to history file: {e}")
         
         if LATEST.get("error"):
             logger.warning(f"Host API returned error: {LATEST['error']}")

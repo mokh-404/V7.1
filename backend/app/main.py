@@ -12,8 +12,10 @@ import threading
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .metrics_proxy import collect_loop, get_latest_metrics
+from .metrics_proxy import collect_loop, get_latest_metrics, HISTORY_FILE
 from .models import MetricsResponse
+from fastapi.responses import FileResponse
+from fastapi import HTTPException
 
 # Configure logging
 logging.basicConfig(
@@ -54,6 +56,7 @@ def startup_event():
     logger.info("Metrics proxy thread started")
 
 
+
 @app.get("/", tags=["Root"])
 def root():
     """Root endpoint with API information."""
@@ -62,6 +65,24 @@ def root():
         "version": "1.0.0",
         "description": "Backend API orchestrating system_monitor.sh for real host metrics"
     }
+
+
+@app.get("/api/reports/all", tags=["Reports"])
+def download_complete_report():
+    """
+    Download the complete history of system readings since startup.
+    
+    Returns:
+        FileResponse: JSONL file containing all collected metrics.
+    """
+    if not HISTORY_FILE.exists():
+        raise HTTPException(status_code=404, detail="No report data available yet")
+    
+    return FileResponse(
+        path=HISTORY_FILE,
+        filename=f"system_monitor_report_{HISTORY_FILE.name}",
+        media_type="application/x-jsonlines"
+    )
 
 
 @app.get("/api/metrics/current", response_model=MetricsResponse, tags=["Metrics"])

@@ -1,16 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Container, Grid, Typography, Box, Alert, CircularProgress } from '@mui/material';
+import { Container, Box, Alert, CircularProgress, Typography, Tabs, Tab } from '@mui/material';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 
 import { fetchCurrentMetrics, MetricsSnapshot } from './api/client';
-import CpuCard from './components/CpuCard';
-import MemoryCard from './components/MemoryCard';
-import DiskCard from './components/DiskCard';
-import NetworkCard from './components/NetworkCard';
-import GpuCard from './components/GpuCard';
-import SystemInfoCard from './components/SystemInfoCard';
-import TopProcessesTable from './components/TopProcessesTable';
+import OverviewTab from './components/OverviewTab';
+import StatisticsTab from './components/StatisticsTab';
 
 // Dark theme for the dashboard
 const darkTheme = createTheme({
@@ -27,11 +22,14 @@ const darkTheme = createTheme({
 });
 
 const POLL_INTERVAL_MS = 5000; // Poll every 5 seconds
+const MAX_HISTORY_POINTS = 60; // Keep last 5 minutes (60 * 5s = 300s)
 
 function App() {
   const [metrics, setMetrics] = useState<MetricsSnapshot | null>(null);
+  const [history, setHistory] = useState<MetricsSnapshot[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [currentTab, setCurrentTab] = useState(0);
 
   useEffect(() => {
     // Fetch metrics immediately
@@ -39,13 +37,22 @@ function App() {
       try {
         setError(null);
         const response = await fetchCurrentMetrics();
-        
+
         if (response.error) {
           setError(response.error);
           setMetrics(null);
         } else if (response.data) {
           setMetrics(response.data);
           setError(null);
+
+          // Update history
+          setHistory(prev => {
+            const newHistory = [...prev, response.data!];
+            if (newHistory.length > MAX_HISTORY_POINTS) {
+              return newHistory.slice(newHistory.length - MAX_HISTORY_POINTS);
+            }
+            return newHistory;
+          });
         } else {
           // No error but also no data
           setError('No metrics data available');
@@ -69,6 +76,10 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
+  const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
+    setCurrentTab(newValue);
+  };
+
   return (
     <ThemeProvider theme={darkTheme}>
       <CssBaseline />
@@ -80,6 +91,13 @@ function App() {
           <Typography variant="subtitle1" color="text.secondary">
             Real-time system metrics from host
           </Typography>
+        </Box>
+
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+          <Tabs value={currentTab} onChange={handleTabChange} aria-label="dashboard tabs" centered>
+            <Tab label="Overview" />
+            <Tab label="Statistics Graph" />
+          </Tabs>
         </Box>
 
         {loading && (
@@ -94,47 +112,8 @@ function App() {
           </Alert>
         )}
 
-        {metrics && (
-          <Grid container spacing={3}>
-            {/* CPU Card */}
-            <Grid item xs={12} md={6}>
-              <CpuCard metrics={metrics.cpu} />
-            </Grid>
-
-            {/* Memory Card */}
-            <Grid item xs={12} md={6}>
-              <MemoryCard metrics={metrics.memory} />
-            </Grid>
-
-            {/* Disk Card */}
-            <Grid item xs={12} md={6}>
-              <DiskCard metrics={metrics.disk} />
-            </Grid>
-
-            {/* Network Card */}
-            <Grid item xs={12} md={6}>
-              <NetworkCard metrics={metrics.network} />
-            </Grid>
-
-            {/* GPU Card */}
-            <Grid item xs={12} md={6}>
-              <GpuCard metrics={metrics.gpu} />
-            </Grid>
-
-            {/* System Info Card */}
-            <Grid item xs={12} md={6}>
-              <SystemInfoCard 
-                system={metrics.system} 
-                alerts={metrics.alerts}
-              />
-            </Grid>
-
-            {/* Top Processes Table */}
-            <Grid item xs={12}>
-              <TopProcessesTable processes={metrics.top_processes} />
-            </Grid>
-          </Grid>
-        )}
+        {metrics && currentTab === 0 && <OverviewTab metrics={metrics} />}
+        {currentTab === 1 && <StatisticsTab history={history} />}
       </Container>
     </ThemeProvider>
   );

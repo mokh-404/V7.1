@@ -31,10 +31,21 @@ export interface MetricsSnapshot {
   disk: {
     display?: string;
     percent?: number;
-    info?: string;
+    partitions?: Array<{
+      path: string;
+      size: string;
+      used: string;
+      avail: string;
+      percent: number;
+    }>;
   };
   network: {
     data?: string;
+    stats?: {
+      lan: { rx: number; tx: number };
+      wifi: { rx: number; tx: number };
+      tcp: number;
+    };
   };
   gpu: {
     name: string;
@@ -66,11 +77,11 @@ export interface MetricsSnapshot {
  */
 export async function fetchCurrentMetrics(): Promise<MetricsResponse> {
   const response = await fetch(`${API_BASE}/api/metrics/current`);
-  
+
   if (!response.ok) {
     throw new Error(`Failed to fetch metrics: ${response.statusText}`);
   }
-  
+
   return response.json();
 }
 

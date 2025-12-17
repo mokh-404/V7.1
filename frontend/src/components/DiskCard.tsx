@@ -3,7 +3,13 @@ import { Card, CardContent, Typography, Box, LinearProgress } from '@mui/materia
 interface DiskMetrics {
   display?: string;
   percent?: number;
-  info?: string;
+  partitions?: Array<{
+    path: string;
+    size: string;
+    used: string;
+    avail: string;
+    percent: number;
+  }>;
 }
 
 interface DiskCardProps {
@@ -11,32 +17,8 @@ interface DiskCardProps {
 }
 
 export default function DiskCard({ metrics }: DiskCardProps) {
-  // Parse disk display string if available
-  // Format: "Disks: [/path used/total (percent%)] | ..."
-  const parseDisks = () => {
-    if (!metrics.display || metrics.display === 'N/A') {
-      return [];
-    }
-
-    const disks: Array<{ path: string; used: string; total: string; percent: number }> = [];
-    const regex = /\[([^\]]+)\]/g;
-    let match;
-
-    while ((match = regex.exec(metrics.display)) !== null) {
-      const diskStr = match[1];
-      // Format: "/path used/total (percent%)"
-      const parts = diskStr.match(/^([^\s]+)\s+([^\s]+)\/\(([^)]+)\)/);
-      if (parts) {
-        const [, path, used, total, percentStr] = parts;
-        const percent = parseFloat(percentStr.replace('%', ''));
-        disks.push({ path, used, total, percent });
-      }
-    }
-
-    return disks;
-  };
-
-  const disks = parseDisks();
+  // Use structured partitions if available, otherwise fallback to basic usage
+  const partitions = metrics.partitions || [];
 
   return (
     <Card>
@@ -45,16 +27,16 @@ export default function DiskCard({ metrics }: DiskCardProps) {
           Disk Usage
         </Typography>
 
-        {disks.length > 0 ? (
+        {partitions.length > 0 ? (
           <Box>
-            {disks.map((disk, index) => (
+            {partitions.map((disk, index) => (
               <Box key={index} sx={{ mb: 3 }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                   <Typography variant="body2" fontWeight="bold">
-                    {disk.path}
+                    {disk.path} ({disk.size})
                   </Typography>
                   <Typography variant="body2">
-                    {disk.used} / {disk.total} ({disk.percent.toFixed(1)}%)
+                    {disk.used} / {disk.size} ({disk.percent.toFixed(1)}%)
                   </Typography>
                 </Box>
                 <LinearProgress
@@ -75,7 +57,7 @@ export default function DiskCard({ metrics }: DiskCardProps) {
         ) : metrics.percent !== undefined ? (
           <Box>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-              <Typography variant="body2">Usage</Typography>
+              <Typography variant="body2">Total Usage</Typography>
               <Typography variant="body2" fontWeight="bold">
                 {metrics.percent.toFixed(1)}%
               </Typography>
@@ -95,7 +77,7 @@ export default function DiskCard({ metrics }: DiskCardProps) {
           </Box>
         ) : (
           <Typography variant="body2" color="text.secondary">
-            {metrics.display || 'No disk information available'}
+            No disk information available
           </Typography>
         )}
       </CardContent>

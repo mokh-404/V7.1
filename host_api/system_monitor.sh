@@ -248,60 +248,57 @@ collect_memory_metrics() {
 collect_disk_metrics() {
     log_info "[4/9] Collecting Disk Metrics..."
 
-
-    local disk_info=""
-
-    # Unified approach: Parse df output for all physical/real filesystems
-    # Excludes: tmpfs, devtmpfs, overlay, squashfs, cdrom, AND specific system paths to reduce clutter
-    
-    # We will use an Associative Array (or string simulation) to dedup by size+used signature
-    # because WSL often mounts the same physical drive at multiple locations (/ and /mnt/c)
+    local disk_raw=""
+    local display_str="Disks: "
     local seen_sizes=""
 
+    # Parsing `df -hP`
+    # Format: Filesystem Size Used Avail Use% Mounted on
     while read -r line; do
+        # Extract fields
         local fs=$(echo "$line" | awk '{print $1}')
         local size=$(echo "$line" | awk '{print $2}')
         local used=$(echo "$line" | awk '{print $3}')
+        local avail=$(echo "$line" | awk '{print $4}')
         local pcent=$(echo "$line" | awk '{print $5}' | sed 's/%//')
         local path=$(echo "$line" | awk '{print $6}')
         
-        # Deduplication 1: Skip if we've seen this exact size+used combination before
-        # This handles / vs /mnt/c vs /dev overlap in WSL
+        # Deduplication: Skip if we've seen this exact size+used combination
         local sig="|${size}|${used}|"
         if [[ "$seen_sizes" == *"$sig"* ]]; then
              continue
         fi
         
-        # Determine if this is a "real" path we care about
-        # Verify it's not a hidden system path that slipped through grep
+        # Filter unwanted paths
         if [[ "$path" == "/run"* || "$path" == "/sys"* || "$path" == "/dev"* || "$path" == "/proc"* || "$path" == "/snap"* ]]; then
              continue
         fi
 
-        # Add to list
-        disk_info="${disk_info}${path} ${used}/${size} (${pcent}%);"
+        # Add to Raw Data (for JSON parsing)
+        # Format: path|size|used|avail|pcent;
+        disk_raw="${disk_raw}${path}|${size}|${used}|${avail}|${pcent};"
+
+        # Add to Display String (Clean format)
+        # Format: [C: 50G/100G (50%)]
+        display_str="${display_str}[${path} ${used}/${size} (${pcent}%)] "
+        
         seen_sizes="${seen_sizes}${sig}"
 
     done < <(df -hP | grep -vE '^Filesystem|tmpfs|cdrom|devtmpfs|udev|overlay|squashfs|iso9660|docker|overlay|none|rootfs')
 
-    METRICS[DISK_INFO]="$disk_info"
-    # Backward compatibility
-    METRICS[DISK_USED]=$(echo "$disk_info" | cut -d';' -f1 | awk '{print $2}')
-    METRICS[DISK_PERCENT]=$(echo "$disk_info" | cut -d';' -f1 | awk '{print $3}' | sed 's/[()%]//g')
-    
-    # Compact Output using echo -n or accumulation
-    local display_str="Disks:"
-    IFS=';' read -ra DISKS <<< "$disk_info"
-    for disk in "${DISKS[@]}"; do
-        [ -z "$disk" ] && continue
-        # disk string: "/mnt/c 285G/476G (60%)"
-        display_str="${display_str} [${disk}] |"
-    done
-    # Remove trailing pipe
-    display_str=${display_str%|}
-    
+    # Store in global metrics
+    METRICS[DISK_RAW]="$disk_raw"
     METRICS[DISK_DISPLAY]="$display_str"
-    # Echo removed for decoupled display
+    
+    # Legacy fallbacks (uses first disk found)
+    local first_disk=$(echo "$disk_raw" | cut -d';' -f1)
+    if [ -n "$first_disk" ]; then
+        METRICS[DISK_USED]=$(echo "$first_disk" | cut -d'|' -f3)
+        METRICS[DISK_PERCENT]=$(echo "$first_disk" | cut -d'|' -f5)
+    else
+        METRICS[DISK_USED]="0"
+        METRICS[DISK_PERCENT]="0"
+    fi
 }
 
 # [4/10] SMART Status
@@ -437,6 +434,7 @@ collect_network_metrics() {
                  local d_wtx=$(format_speed $w_tx)
                  
                  METRICS[NET_DATA]="  LAN: ↓ ${d_lrx} ↑ ${d_ltx} | WiFi: ↓ ${d_wrx} ↑ ${d_wtx} | TCP: ${tcp_conns}"
+                 METRICS[NET_RAW]="${l_rx}|${l_tx}|${w_rx}|${w_tx}|${tcp_conns}"
                  return
             fi
         fi
@@ -511,6 +509,8 @@ collect_network_metrics() {
           if [ $((lan_rx+lan_tx)) -gt 0 ]; then active=1; fi
           
           METRICS[NET_DATA]="  Net(Mac): ↓ $(format_speed $lan_rx) ↑ $(format_speed $lan_tx) | TCP: ${tcp_conns}"
+          # Mac aggregation: Dump everything to LAN, WiFi 0
+          METRICS[NET_RAW]="${lan_rx}|${lan_tx}|0|0|${tcp_conns}"
           if [ "$active" -eq 1 ]; then
              PREV_NET_TIME="$current_time"
              return
@@ -578,18 +578,24 @@ collect_network_metrics() {
     PREV_NET_TIME="$current_time"
     
     # Selection Logic
+    # Selection Logic
     if [ "$iface_active" -eq 1 ]; then
         local label=""; [ "$iface_mode" = "legacy" ] && label="(L)"
         METRICS[NET_DATA]="  LAN${label}: ↓ $(format_speed $lan_rx) ↑ $(format_speed $lan_tx) | WiFi: ↓ $(format_speed $wifi_rx) ↑ $(format_speed $wifi_tx) | TCP: ${tcp_conns}"
+        METRICS[NET_RAW]="${lan_rx}|${lan_tx}|${wifi_rx}|${wifi_tx}|${tcp_conns}"
     elif [ "$snmp_active" -eq 1 ]; then
         METRICS[NET_DATA]="  Net(Global): ↓ $(format_speed $snmp_rx)  ↑ $(format_speed $snmp_tx) | TCP: ${tcp_conns}"
+        # Map SNMP global to LAN for simplicity in raw mode
+        METRICS[NET_RAW]="${snmp_rx}|${snmp_tx}|0|0|${tcp_conns}"
     else
         # Default Zero
         if [ "$iface_found" -eq 1 ]; then
             local label=""; [ "$iface_mode" = "legacy" ] && label="(L)"
             METRICS[NET_DATA]="  LAN${label}: ↓ 0 B/s ↑ 0 B/s | WiFi: ↓ 0 B/s ↑ 0 B/s | TCP: ${tcp_conns}"
+            METRICS[NET_RAW]="0|0|0|0|${tcp_conns}"
         else
             METRICS[NET_DATA]="  Net: Initializing... | TCP: ${tcp_conns}"
+            METRICS[NET_RAW]="0|0|0|0|${tcp_conns}"
         fi
     fi
 }
@@ -600,13 +606,28 @@ collect_load_metrics() {
 
 
     local up_str=""
-    if [ -r /proc/uptime ]; then
+    
+    # Strategy 0: Windows Native (PowerShell) - Real Host Uptime for WSL
+    if command -v powershell.exe >/dev/null 2>&1; then
+        # Calculate uptime in seconds using PowerShell
+        local uptime_sec=$(powershell.exe -NoProfile -Command "[math]::Round(((Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime).TotalSeconds)" 2>/dev/null | tr -d '\r')
+        
+        if [[ "$uptime_sec" =~ ^[0-9]+$ ]]; then
+            local d=$((uptime_sec / 86400))
+            local h=$(((uptime_sec % 86400) / 3600))
+            local m=$(((uptime_sec % 3600) / 60))
+            up_str="${d}d ${h}h ${m}m"
+        fi
+    fi
+
+    # Strategy 1: Linux Native (/proc/uptime)
+    if [ -z "$up_str" ] && [ -r /proc/uptime ]; then
         local sec=$(awk '{print $1}' /proc/uptime | cut -d. -f1)
         local d=$((sec / 86400))
         local h=$(((sec % 86400) / 3600))
         local m=$(((sec % 3600) / 60))
         up_str="${d}d ${h}h ${m}m"
-    else
+    elif [ -z "$up_str" ]; then
         up_str=$(uptime | tr -d ',')
     fi
 
